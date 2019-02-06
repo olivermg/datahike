@@ -23,30 +23,32 @@
         path (.getPath sub-uri)]
     [m proto path]))
 
-(defn connect
-  ([uri]
-   (connect uri nil))
-  ([uri tx]
-   (let [[m proto path] (parse-uri uri) #_(re-find #"datahike:(.+)://(/.+)" uri)
-         _ (when-not m
-             (throw (ex-info "URI cannot be parsed." {:uri uri})))
-         store (kons/add-hitchhiker-tree-handlers
-                (kc/ensure-cache
-                 (case proto
-                   "mem"
-                   (@memory uri)
-                   "file"
-                   (<?? S (fs/new-fs-store path))
-                   "level"
-                   (<?? S (kl/new-leveldb-store path)))
-                 (atom (cache/lru-cache-factory {} :threshold 1000))))
-         stored-db (<?? S (k/get-in store (if tx
-                                            [:db-tx tx]
+(defn connect [uri]
+  (let [[m proto path] (parse-uri uri) #_(re-find #"datahike:(.+)://(/.+)" uri)
+        _ (when-not m
+            (throw (ex-info "URI cannot be parsed." {:uri uri})))
+        store (kons/add-hitchhiker-tree-handlers
+               (kc/ensure-cache
+                (case proto
+                  "mem"   (@memory uri)
+                  "file"  (<?? S (fs/new-fs-store path))
+                  "level" (<?? S (kl/new-leveldb-store path)))
+                (atom (cache/lru-cache-factory {} :threshold 1000))))]
+    {:uri uri
+     :proto proto
+     :store store}))
+
+(defn get-db
+  ([connection]
+   (get-db connection nil))
+  ([connection tx-id]
+   (let [{:keys [uri proto store]} connection
+         stored-db (<?? S (k/get-in store (if tx-id
+                                            [:db-tx tx-id]
                                             [:db])))
          _ (when-not stored-db
              (case proto
-               "level"
-               (kl/release store)
+               "level" (kl/release store)
                nil)
              (throw (ex-info "DB does not exist." {:type :db-does-not-exist
                                                    :uri uri})))
@@ -54,7 +56,6 @@
          empty (db/empty-db)
          max-tx (or max-tx (:max-tx empty))
          eavt-durable eavt-key]
-                                        ;(prn eavt-durable)
      (d/conn-from-db
       (assoc empty
              :schema schema
@@ -73,16 +74,13 @@
             (throw (ex-info "URI cannot be parsed." {:uri uri})))
         store (kc/ensure-cache
                (case proto
-                 "mem"
-                 (let [store (<?? S (mem/new-mem-store))]
-                   (swap! memory assoc uri store)
-                   store)
-                 "file"
-                 (kons/add-hitchhiker-tree-handlers
-                  (<?? S (fs/new-fs-store path)))
-                 "level"
-                 (kons/add-hitchhiker-tree-handlers
-                  (<?? S (kl/new-leveldb-store path))))
+                 "mem"   (let [store (<?? S (mem/new-mem-store))]
+                           (swap! memory assoc uri store)
+                           store)
+                 "file"  (kons/add-hitchhiker-tree-handlers
+                          (<?? S (fs/new-fs-store path)))
+                 "level" (kons/add-hitchhiker-tree-handlers
+                          (<?? S (kl/new-leveldb-store path))))
                (atom (cache/lru-cache-factory {} :threshold 1000)))
         stored-db (<?? S (k/get-in store [:db]))
         _ (when stored-db
@@ -108,21 +106,18 @@
 (defn delete-database [uri]
   (let [[m proto path] (parse-uri uri)]
     (case proto
-      "mem"
-      (swap! memory dissoc uri)
-      "file"
-      (fs/delete-store path)
-      "level"
-      (kl/delete-store path))))
+      "mem"   (swap! memory dissoc uri)
+      "file"  (fs/delete-store path)
+      "level" (kl/delete-store path))))
 
-(defn transact [connection tx-data]
-  {:pre [(d/conn? connection)]}
+(defn transact [db tx-data]
+  {:pre [(d/conn? db)]}
   (future
-    (locking connection
-      (let [{:keys [db-after tempids] :as tx-report} @(d/transact connection tx-data)
+    (locking db
+      (let [{:keys [db-after tempids] :as tx-report} @(d/transact db tx-data)
             {:keys [db/current-tx]} tempids
             {:keys [eavt-durable aevt-durable avet-durable schema rschema]} db-after
-            store (:store @connection)
+            store (:store @db)
             backend (kons/->KonserveBackend store)
             eavt-flushed (:tree (hc/<?? (hc/flush-tree-without-root eavt-durable backend)))
             aevt-flushed (:tree (hc/<?? (hc/flush-tree-without-root aevt-durable backend)))
@@ -135,22 +130,19 @@
                            :max-tx current-tx}]
         (<?? S (k/assoc-in store [:db] new-stored-db))
         (<?? S (k/assoc-in store [:db-tx current-tx] new-stored-db))
-        (reset! connection (assoc db-after
-                                  :eavt-durable eavt-flushed
-                                  :aevt-durable aevt-flushed
-                                  :avet-durable avet-flushed))
+        (reset! db (assoc db-after
+                          :eavt-durable eavt-flushed
+                          :aevt-durable aevt-flushed
+                          :avet-durable avet-flushed))
         tx-report))))
 
 
-(defn release [conn]
-  (let [[m proto path] (re-find #"datahike:(.+)://(/.+)" (:uri @conn))]
+(defn release [connection]
+  (let [[m proto path] (re-find #"datahike:(.+)://(/.+)" (:uri connection))]
     (case proto
-      "mem"
-      nil
-      "file"
-      nil
-      "level"
-      (kl/release (:store @conn)))))
+      "mem"   nil
+      "file"  nil
+      "level" (kl/release (:store connection)))))
 
 
 (def pull d/pull)
@@ -169,7 +161,7 @@
 
 (def filter d/filter)
 
-(defn db [conn]
-  @conn)
+(defn db [db]
+  @db)
 
 (def with d/with)
