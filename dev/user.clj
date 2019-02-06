@@ -9,7 +9,7 @@
   cljs.closure/Inputs
   (-paths [_]
     (mapv clojure.java.io/file dirs))
-  
+
   cljs.closure/Compilable
   (-compile [_ opts]
     (let [out-dir (cljs.util/output-directory opts)]
@@ -35,3 +35,10 @@
 
 (defn node-repl []
   (repl 'datahike (cljs.repl.node/repl-env)))
+
+
+#_(do (require '[datahike.api :as dh])
+    (def uri "datahike:file:///tmp/datahike.db")
+    #_(dh/create-database uri)
+    (def conn (dh/connect uri))
+    (def db1 (dh/get-db conn)))
