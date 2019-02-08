@@ -17,9 +17,11 @@
 
 (defn parse-uri [uri]
   (let [base-uri (URI. uri)
-        m (.getScheme base-uri)
+        m (or (.getScheme base-uri)
+              "datahike")
         sub-uri (URI. (.getSchemeSpecificPart base-uri))
-        proto (.getScheme sub-uri)
+        proto (or (.getScheme sub-uri)
+                  "file")
         path (.getPath sub-uri)]
     [m proto path]))
 
@@ -138,7 +140,7 @@
 
 
 (defn release [connection]
-  (let [[m proto path] (re-find #"datahike:(.+)://(/.+)" (:uri connection))]
+  (let [[m proto path] (parse-uri (:uri connection)) #_(re-find #"datahike:(.+)://(/.+)" (:uri connection))]
     (case proto
       "mem"   nil
       "file"  nil
