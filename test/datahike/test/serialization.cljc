@@ -41,18 +41,18 @@
 
 #?(:clj
   (deftest test-reader-literals
-    (is (= #datahike/Datom [1 :name "Oleg"]
+    (is (= (edn/read-string "#datahike/Datom [1 :name \"Oleg\"]")
                     (db/datom 1 :name "Oleg")))
-    (is (= #datahike/Datom [1 :name "Oleg" 100 false]
+    (is (= (edn/read-string "#datahike/Datom [1 :name \"Oleg\" 100 false]")
                     (db/datom 1 :name "Oleg" 100 false)))
     ;; not supported because IRecord print method is hard-coded into Compiler
-    #_(is (= #datahike/DB {:schema {:name {:db/unique :db.unique/identity}}
-                           :datoms [[1 :name "Oleg" 100] [1 :age 14 100] [2 :name "Petr" 101]]}
-           (d/init-db 
-             [ (db/datom 1 :name "Oleg" 100)
-               (db/datom 1 :age 14 100)
-               (db/datom 2 :name "Petr" 101) ]
-             {:name {:db/unique :db.unique/identity}})))))
+    #_(is (= (edn/read-string "#datahike/DB {:schema {:name {:db/unique :db.unique/identity}}
+                                           :datoms [[1 :name \"Oleg\" 100] [1 :age 14 100] [2 :name \"Petr\" 101]]}")
+           (d/init-db
+            [(db/datom 1 :name "Oleg" 100)
+             (db/datom 1 :age 14 100)
+             (db/datom 2 :name "Petr" 101) ]
+            {:name {:db/unique :db.unique/identity}})))))
 
 
 (def data
